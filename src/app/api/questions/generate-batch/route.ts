@@ -85,8 +85,45 @@ ${resumeAnalysisText}
         throw new Error("Parsed JSON is not an array");
       }
     } catch (parseErr) {
-      console.error("Failed to parse batch JSON", parseErr);
-      return NextResponse.json({ error: "Failed to parse generated questions" }, { status: 500 });
+      console.warn("Initial JSON.parse failed, attempting to salvage truncated JSON...");
+      try {
+        const lastBraceIndex = responseText.lastIndexOf('}');
+        if (lastBraceIndex !== -1) {
+          let salvagedText = responseText.substring(0, lastBraceIndex + 1);
+          if (salvagedText.includes('[')) {
+             const startIdx = salvagedText.indexOf('[');
+             salvagedText = salvagedText.substring(startIdx) + ']';
+          }
+          questionsData = JSON.parse(salvagedText);
+          if (!Array.isArray(questionsData)) {
+            throw new Error("Salvaged JSON is not an array");
+          }
+          console.log(`Successfully salvaged ${questionsData.length} questions from truncated JSON.`);
+        } else {
+          throw new Error("No valid objects found to salvage.");
+        }
+      } catch (salvageErr) {
+        console.error("Failed to salvage batch JSON", salvageErr);
+        console.error("Original parse error:", parseErr);
+        // Do not return 500 here, use fallback instead.
+      }
+    }
+
+    // Ultimate Fallback: if questionsData is empty or not an array, provide generic questions
+    if (!Array.isArray(questionsData) || questionsData.length === 0) {
+      console.warn("Using ultimate fallback generic questions because LLM generation failed completely.");
+      questionsData = [
+        { text: `Tell me about your experience as a ${role}.`, difficulty: "Level 1" },
+        { text: "What is your greatest strength in this field?", difficulty: "Level 1" },
+        { text: "Can you describe a challenging project you've worked on?", difficulty: "Level 2" },
+        { text: "How do you handle disagreements with team members?", difficulty: "Level 2" },
+        { text: "Where do you see your career going in the next 5 years?", difficulty: "Level 1" },
+        { text: "How do you stay updated with the latest trends in your industry?", difficulty: "Level 1" },
+        { text: "Describe a time when you had to learn a new skill quickly.", difficulty: "Level 2" },
+        { text: "What are your expectations for this role?", difficulty: "Level 1" },
+        { text: "How do you prioritize your tasks when facing tight deadlines?", difficulty: "Level 2" },
+        { text: "Tell me about a time you failed and what you learned from it.", difficulty: "Level 3" }
+      ];
     }
 
     // Format for DB insertion
