@@ -92,7 +92,8 @@ Output your response strictly in the following JSON format:
 
     let rawResponse = "";
     try {
-      rawResponse = await generateContentWithFallback(prompt);
+      // 500 maxTokens and 10000ms timeout per key is enough for a short evaluation and prevents 4-minute hanging.
+      rawResponse = await generateContentWithFallback(prompt, 500, 0.1, 10000);
     } catch (apiError) {
       console.error("LLM API Network/Timeout Error:", apiError);
       rawResponse = "INVALID_JSON_FORCE_FALLBACK";
@@ -104,12 +105,34 @@ Output your response strictly in the following JSON format:
     try {
       aiResult = JSON.parse(responseText);
     } catch (e) {
-      console.error("Failed to parse AI evaluation JSON. Raw output:", rawResponse);
-      aiResult = {
-        score: 50,
-        feedback: "The AI evaluator had trouble generating a complete response for this answer, but it has been recorded.",
-        idealAnswer: "A great answer would be clearly structured and directly address the role requirements."
-      };
+      // If parsing fails (e.g., due to repeated text + JSON blocks), try extracting the first non-greedy block
+      try {
+        const match = rawResponse.match(/\{[\s\S]*?\}/g);
+        let parsed = null;
+        if (match) {
+           for (const m of match) {
+             try {
+               const temp = JSON.parse(m);
+               if (temp && temp.score !== undefined) {
+                 parsed = temp;
+                 break;
+               }
+             } catch(err) {}
+           }
+        }
+        if (parsed) {
+          aiResult = parsed;
+        } else {
+          throw new Error("Regex JSON extraction failed");
+        }
+      } catch (regexErr) {
+        console.error("Failed to parse AI evaluation JSON. Raw output:", rawResponse);
+        aiResult = {
+          score: 5, // FIXED: Changed from 50 (which resulted in 10/10) to a neutral 5
+          feedback: "The AI evaluator had trouble generating a complete response for this answer, but it has been recorded.",
+          idealAnswer: "A great answer would be clearly structured and directly address the role requirements."
+        };
+      }
     }
     
     const parsedScore = Number(aiResult.score);
