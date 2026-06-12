@@ -46,7 +46,7 @@ Candidate's AI Resume Analysis:
     }
 
     // Always generate exactly 30 questions (10 for each level) as requested
-    const prompt = `
+    const persona = `
 You are an expert technical and behavioral interviewer conducting a mock interview for the role of ${role}.
 Generate EXACTLY 30 highly personalized interview questions based strictly on the candidate's resume provided below.
 
@@ -75,7 +75,7 @@ ${resumeAnalysisText}
     `;
 
     // 80 seconds timeout for generating 30 questions
-    const rawResponse = await generateContentWithFallback(prompt, 4000, 0.7, 80000);
+    const rawResponse = await generateContentWithFallback(persona, 4000, 0.7, 80000);
     const responseText = cleanJsonString(rawResponse);
 
     let questionsData = [];

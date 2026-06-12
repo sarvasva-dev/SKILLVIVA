@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     const roleContext = targetRole ? `You are evaluating this candidate STRICTLY for the role of: "${targetRole}".` : `Guess the candidate's target role based on their resume.`;
 
-    const prompt = `
+    const persona = `
 You are an expert, brutally honest technical recruiter and ATS software evaluator.
 ${roleContext}
 
@@ -41,7 +41,7 @@ Resume Text:
 ${text.substring(0, 5000)}
     `;
 
-    const rawResponse = await generateContentWithFallback(prompt);
+    const rawResponse = await generateContentWithFallback(persona);
     const responseText = cleanJsonString(rawResponse);
 
     const data = JSON.parse(responseText);
