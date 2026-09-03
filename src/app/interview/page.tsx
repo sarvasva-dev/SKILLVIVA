@@ -138,27 +138,37 @@ export default function InterviewPage() {
         speakText(q.text);
         return;
       }
-      const res = await fetch(`/api/questions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          role_id: role,
-          difficulty: diff,
-          questionNumber: qNum,
-          resumeContext: resumeCtx,
-          askedQuestionIds: askedQuestionIdsRef.current,
-          previousQuestions: askedQuestionTextsRef.current
-        })
-      });
-      const data = await res.json();
-      if (data.question) {
-        if (data.question._id) askedQuestionIdsRef.current.push(data.question._id);
-        if (data.question.text) askedQuestionTextsRef.current.push(data.question.text);
-        setCurrentQuestion(data.question);
-        setStatus("READY");
-        questionReadyTimeRef.current = Date.now();
-        speakText(data.question.text);
+      
+      const storedQuestionsStr = localStorage.getItem("skillviva_questions");
+      if (storedQuestionsStr) {
+        const storedQuestions = JSON.parse(storedQuestionsStr);
+        let qIndex = storedQuestions.findIndex((q: any) => q.difficulty === `Level ${diff}` && !q.used);
+        if (qIndex === -1) {
+           qIndex = storedQuestions.findIndex((q: any) => !q.used);
+        }
+        
+        if (qIndex !== -1) {
+          const selectedQ = storedQuestions[qIndex];
+          storedQuestions[qIndex].used = true;
+          localStorage.setItem("skillviva_questions", JSON.stringify(storedQuestions));
+          
+          if (selectedQ.id) askedQuestionIdsRef.current.push(selectedQ.id);
+          if (selectedQ.text) askedQuestionTextsRef.current.push(selectedQ.text);
+          setCurrentQuestion(selectedQ);
+          setStatus("READY");
+          questionReadyTimeRef.current = Date.now();
+          speakText(selectedQ.text);
+          return;
+        }
       }
+      
+      // Fallback
+      const genericQ = { text: "Tell me more about your experience in this field.", difficulty: diff, _id: crypto.randomUUID() };
+      setCurrentQuestion(genericQ);
+      setStatus("READY");
+      questionReadyTimeRef.current = Date.now();
+      speakText(genericQ.text);
+      
     } catch (e) {
       console.error(e);
       setErrorMsg("Failed to load question. Check your connection.");
@@ -168,27 +178,29 @@ export default function InterviewPage() {
 
   const prefetchNextQuestion = (role: string, diff: string, qNum: number) => {
     if (prefetchedQuestionRef.current) return;
-    fetch(`/api/questions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        role_id: role,
-        difficulty: diff,
-        questionNumber: qNum,
-        resumeContext: resumeCtx,
-        askedQuestionIds: askedQuestionIdsRef.current,
-        previousQuestions: askedQuestionTextsRef.current
-      })
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data.question) {
-          if (data.question._id) askedQuestionIdsRef.current.push(data.question._id);
-          if (data.question.text) askedQuestionTextsRef.current.push(data.question.text);
-          prefetchedQuestionRef.current = data.question;
+    
+    try {
+      const storedQuestionsStr = localStorage.getItem("skillviva_questions");
+      if (storedQuestionsStr) {
+        const storedQuestions = JSON.parse(storedQuestionsStr);
+        let qIndex = storedQuestions.findIndex((q: any) => q.difficulty === `Level ${diff}` && !q.used);
+        if (qIndex === -1) {
+           qIndex = storedQuestions.findIndex((q: any) => !q.used);
         }
-      })
-      .catch(() => { /* silent */ });
+        
+        if (qIndex !== -1) {
+          const selectedQ = storedQuestions[qIndex];
+          // Don't mark as used yet, wait until fetchNextQuestion actually consumes it
+          // OR actually we can mark it used here to avoid picking it again
+          storedQuestions[qIndex].used = true;
+          localStorage.setItem("skillviva_questions", JSON.stringify(storedQuestions));
+          
+          prefetchedQuestionRef.current = selectedQ;
+        }
+      }
+    } catch (e) {
+      /* silent */
+    }
   };
 
   const speakText = async (text: string) => {

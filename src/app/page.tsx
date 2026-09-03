@@ -28,12 +28,12 @@ export default function HomePage() {
 
   useEffect(() => {
     // If logged in, redirect to dashboard
-    fetch("/api/auth/me")
-      .then(res => {
-        if (res.ok) router.replace("/dashboard");
-        else setChecking(false);
-      })
-      .catch(() => setChecking(false));
+    const userStr = localStorage.getItem("skillviva_user");
+    if (userStr) {
+      router.replace("/dashboard");
+    } else {
+      setChecking(false);
+    }
   }, [router]);
 
   useEffect(() => {
