@@ -13,33 +13,50 @@ export default function OnboardingPage() {
   const router = useRouter();
 
   useEffect(() => {
-    fetch("/api/roles")
-      .then(res => res.json())
-      .then(data => { if (Array.isArray(data)) setRoles(data.map((r: any) => r.name)); })
-      .catch(err => console.error("Failed to load roles", err));
-    // Fetch existing name silently
-    fetch("/api/auth/me")
-      .then(r => r.ok ? r.json() : null)
-      .then(u => { if (u?.name) setUserName(u.name); if (u?.targetRole) setTargetRole(u.targetRole); })
-      .catch(() => {});
-  }, []);
+    // Default roles since we don't have an API for it anymore
+    setRoles([
+      "Frontend Developer",
+      "Backend Developer",
+      "Fullstack Developer",
+      "Data Scientist",
+      "Product Manager",
+      "UX Designer"
+    ]);
+    
+    // Fetch existing name silently from local storage
+    const userStr = localStorage.getItem("skillviva_user");
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        if (u?.name) setUserName(u.name);
+        if (u?.targetRole) setTargetRole(u.targetRole);
+      } catch (e) {
+        console.error("Failed to parse user from local storage");
+      }
+    } else {
+      router.push("/login");
+    }
+  }, [router]);
 
   const handleComplete = async (e: React.FormEvent) => {
     e.preventDefault();
     const finalRole = targetRole === "Other" ? customRole : targetRole;
     if (!finalRole) return;
     setLoading(true);
-    try {
-      const res = await fetch("/api/auth/onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: userName || "User", targetRole: finalRole }),
-      });
-      if (res.ok) router.push("/resume");
-      else setLoading(false);
-    } catch {
-      setLoading(false);
-    }
+    
+    setTimeout(() => {
+      const userStr = localStorage.getItem("skillviva_user");
+      if (userStr) {
+        const u = JSON.parse(userStr);
+        u.name = userName || "User";
+        u.targetRole = finalRole;
+        u.isOnboarded = true;
+        localStorage.setItem("skillviva_user", JSON.stringify(u));
+        router.push("/resume");
+      } else {
+        router.push("/login");
+      }
+    }, 500);
   };
 
   return (

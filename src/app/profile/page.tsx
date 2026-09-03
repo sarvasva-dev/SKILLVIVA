@@ -18,30 +18,30 @@ export default function ProfilePage() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const [meRes, rolesRes] = await Promise.all([
-          fetch("/api/auth/me"),
-          fetch("/api/roles")
-        ]);
-
-        if (!meRes.ok) {
+        const userStr = localStorage.getItem("skillviva_user");
+        if (!userStr) {
           router.push("/login");
           return;
         }
 
-        const userData = await meRes.json();
+        const userData = JSON.parse(userStr);
         setName(userData.name || "");
         
-        if (rolesRes.ok) {
-          const rolesData = await rolesRes.json();
-          const roleNames = Array.isArray(rolesData) ? rolesData.map((r: any) => r.name) : [];
-          setRoles(roleNames);
-          
-          if (userData.targetRole && !roleNames.includes(userData.targetRole)) {
-            setSelectedRole("Other");
-            setCustomRole(userData.targetRole);
-          } else {
-            setSelectedRole(userData.targetRole || "");
-          }
+        const roleNames = [
+          "Frontend Developer",
+          "Backend Developer",
+          "Fullstack Developer",
+          "Data Scientist",
+          "Product Manager",
+          "UX Designer"
+        ];
+        setRoles(roleNames);
+        
+        if (userData.targetRole && !roleNames.includes(userData.targetRole)) {
+          setSelectedRole("Other");
+          setCustomRole(userData.targetRole);
+        } else {
+          setSelectedRole(userData.targetRole || "");
         }
       } catch (err) {
         console.error(err);
@@ -60,21 +60,19 @@ export default function ProfilePage() {
     const finalRole = selectedRole === "Other" ? customRole : selectedRole;
 
     try {
-      const res = await fetch("/api/auth/me", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, targetRole: finalRole })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setMessage({ text: data.error || "Failed to update profile", type: "error" });
-      } else {
+      const userStr = localStorage.getItem("skillviva_user");
+      if (userStr) {
+        const userData = JSON.parse(userStr);
+        userData.name = name;
+        userData.targetRole = finalRole;
+        localStorage.setItem("skillviva_user", JSON.stringify(userData));
         setMessage({ text: "Profile updated successfully!", type: "success" });
         setTimeout(() => setMessage(null), 3000);
+      } else {
+        setMessage({ text: "Failed to update profile", type: "error" });
       }
     } catch (err) {
-      setMessage({ text: "Network error", type: "error" });
+      setMessage({ text: "Error saving profile", type: "error" });
     } finally {
       setSaving(false);
     }

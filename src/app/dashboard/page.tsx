@@ -48,36 +48,34 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [meRes, interviewsRes, rolesRes] = await Promise.all([
-          fetch("/api/auth/me"),
-          fetch("/api/interviews/user"),
-          fetch("/api/roles"),
-        ]);
-
-        if (!meRes.ok) { router.push("/login"); return; }
-
-        const userData = await meRes.json();
-        setUser(userData);
-        setSelectedRole(userData.targetRole || "");
-        // if (userData.resumeAnalysis?.suggestedDifficulty) {
-        //   setSelectedDifficulty(userData.resumeAnalysis.suggestedDifficulty);
-        // }
-
-        if (interviewsRes.ok) {
-          const interviewsData = await interviewsRes.json();
-          setInterviews(Array.isArray(interviewsData) ? interviewsData : []);
+        const userStr = localStorage.getItem("skillviva_user");
+        if (!userStr) {
+          router.push("/login");
+          return;
         }
 
-        if (rolesRes.ok) {
-          const rolesData = await rolesRes.json();
-          if (Array.isArray(rolesData)) {
-            const roleNames = rolesData.map((r: any) => r.name);
-            setRoles(roleNames);
-            if (userData.targetRole && !roleNames.includes(userData.targetRole)) {
-              setSelectedRole("Other");
-              setCustomRole(userData.targetRole);
-            }
-          }
+        const userData = JSON.parse(userStr);
+        setUser(userData);
+        setSelectedRole(userData.targetRole || "");
+        
+        const interviewsStr = localStorage.getItem("skillviva_interviews");
+        if (interviewsStr) {
+          setInterviews(JSON.parse(interviewsStr));
+        }
+
+        const predefinedRoles = [
+          "Frontend Developer",
+          "Backend Developer",
+          "Fullstack Developer",
+          "Data Scientist",
+          "Product Manager",
+          "UX Designer"
+        ];
+        setRoles(predefinedRoles);
+        
+        if (userData.targetRole && !predefinedRoles.includes(userData.targetRole)) {
+          setSelectedRole("Other");
+          setCustomRole(userData.targetRole);
         }
       } catch {
         router.push("/login");
@@ -102,23 +100,26 @@ export default function DashboardPage() {
     setIsGenerating(true);
     try {
       if (user && finalRole !== (user.targetRole || "")) {
-        await fetch("/api/auth/me", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: user.name, targetRole: finalRole })
-        });
+        const updatedUser = { ...user, targetRole: finalRole };
+        setUser(updatedUser);
+        localStorage.setItem("skillviva_user", JSON.stringify(updatedUser));
       }
 
       // Pre-generate custom questions before starting
       const genRes = await fetch("/api/questions/generate-batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: finalRole, resumeContext: JSON.stringify(user?.resumeAnalysis || {}) })
+        body: JSON.stringify({ role: finalRole, resumeContext: user?.resumeAnalysis || {} })
       });
 
       if (!genRes.ok) {
         alert("Failed to prepare your customized arena. Please try again.");
         return;
+      }
+      
+      const data = await genRes.json();
+      if (data.questions && data.questions.length > 0) {
+        localStorage.setItem("skillviva_questions", JSON.stringify(data.questions));
       }
     } catch (err) {
       console.error("Failed during interview initialization", err);
@@ -132,16 +133,10 @@ export default function DashboardPage() {
     router.push("/interview");
   };
 
-  const handleClearHistory = async () => {
+  const handleClearHistory = () => {
     if (!confirm("Are you sure you want to clear your entire interview history?")) return;
-    try {
-      const res = await fetch("/api/interviews/user/clear", { method: "DELETE" });
-      if (res.ok) {
-        setInterviews([]);
-      }
-    } catch (err) {
-      console.error(err);
-    }
+    localStorage.removeItem("skillviva_interviews");
+    setInterviews([]);
   };
 
   // Computed stats — include ALL interviews that have any scores
@@ -243,17 +238,17 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   {user.resumeAnalysis.missingSkills?.length > 0 && (
-                    <div className="border-t border-[#222] pt-3">
-                      <p className="font-body text-[10px] text-[#555] uppercase tracking-widest mb-2">Top Gaps</p>
-                      <div className="flex flex-wrap gap-1">
-                        {user.resumeAnalysis.missingSkills.slice(0, 3).map((s, i) => (
-                          <span key={i} className="px-2 py-0.5 bg-orange-400/10 border border-orange-400/20 font-body text-[10px] text-orange-400 rounded-sm">
-                            {s}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                     <div className="border-t border-[#222] pt-3">
+                       <p className="font-body text-[10px] text-[#555] uppercase tracking-widest mb-2">Top Gaps</p>
+                       <div className="flex flex-wrap gap-1">
+                         {user.resumeAnalysis.missingSkills.slice(0, 3).map((s: string, i: number) => (
+                           <span key={i} className="px-2 py-0.5 bg-orange-400/10 border border-orange-400/20 font-body text-[10px] text-orange-400 rounded-sm">
+                             {s}
+                           </span>
+                         ))}
+                       </div>
+                     </div>
+                   )}
                 </div>
               ) : (
                 <div className="text-center py-4">

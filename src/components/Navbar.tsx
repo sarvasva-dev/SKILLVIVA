@@ -16,9 +16,12 @@ export default function Navbar({ userName, targetRole, activeTab }: NavbarProps)
 
   const handleLogout = async () => {
     setLoggingOut(true);
-    await fetch("/api/auth/logout", { method: "POST" });
+    localStorage.removeItem("skillviva_user");
+    localStorage.removeItem("skillviva_interviews");
+    localStorage.removeItem("skillviva_questions");
     localStorage.removeItem("skillviva_resume_context");
     localStorage.removeItem("skillviva_interview_config");
+    sessionStorage.removeItem("skillviva_report");
     router.push("/login");
   };
 

@@ -33,11 +33,15 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch user for navbar
-    fetch("/api/auth/me")
-      .then(r => r.ok ? r.json() : null)
-      .then(u => setUser(u))
-      .catch(() => {});
+    // Fetch user for navbar from local storage
+    const userStr = localStorage.getItem("skillviva_user");
+    if (userStr) {
+      try {
+        setUser(JSON.parse(userStr));
+      } catch (e) {
+        console.error("Failed to parse user from local storage");
+      }
+    }
 
     // Read report from sessionStorage
     const stored = sessionStorage.getItem("skillviva_report");

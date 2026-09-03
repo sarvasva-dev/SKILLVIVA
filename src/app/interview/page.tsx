@@ -34,13 +34,6 @@ export default function InterviewPage() {
     feedback: string;
     hesitation: number;
   }>>([]);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportData, setReportData] = useState<{
-    strong_areas: string[];
-    weak_areas: string[];
-    overall_feedback: string;
-    recommendations: string[];
-  } | null>(null);
 
   const [timeLeft, setTimeLeft] = useState(30);
 
@@ -100,15 +93,22 @@ export default function InterviewPage() {
 
   const startNewInterviewSession = async (role: string, difficulty: string) => {
     try {
-      const res = await fetch("/api/interviews", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role, difficulty })
-      });
-      const data = await res.json();
-      if (data.interviewId) {
-        setInterviewSessionId(data.interviewId);
-      }
+      const id = crypto.randomUUID();
+      const newSession = {
+        _id: id,
+        role,
+        difficulty,
+        status: "IN_PROGRESS",
+        createdAt: new Date().toISOString(),
+        history: []
+      };
+      
+      const interviewsStr = localStorage.getItem("skillviva_interviews");
+      const interviews = interviewsStr ? JSON.parse(interviewsStr) : [];
+      interviews.push(newSession);
+      localStorage.setItem("skillviva_interviews", JSON.stringify(interviews));
+      
+      setInterviewSessionId(id);
     } catch (e) {
       console.error("Failed to start session:", e);
     }
@@ -255,11 +255,16 @@ export default function InterviewPage() {
       const data = await res.json();
       
       if (interviewSessionId) {
-        await fetch(`/api/interviews/${interviewSessionId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reportData: data, status: "CONCLUDED" })
-        }).catch(e => console.error("Failed to conclude session:", e));
+        const interviewsStr = localStorage.getItem("skillviva_interviews");
+        if (interviewsStr) {
+          const interviews = JSON.parse(interviewsStr);
+          const iIdx = interviews.findIndex((i: any) => i._id === interviewSessionId);
+          if (iIdx > -1) {
+            interviews[iIdx].reportData = data;
+            interviews[iIdx].status = "CONCLUDED";
+            localStorage.setItem("skillviva_interviews", JSON.stringify(interviews));
+          }
+        }
       }
 
       sessionStorage.setItem("skillviva_report", JSON.stringify({
@@ -396,11 +401,15 @@ export default function InterviewPage() {
           setHistory(updatedHistory);
           
           if (interviewSessionId) {
-            fetch(`/api/interviews/${interviewSessionId}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ historyItem })
-            }).catch(e => console.error("Failed to update session:", e));
+            const interviewsStr = localStorage.getItem("skillviva_interviews");
+            if (interviewsStr) {
+              const interviews = JSON.parse(interviewsStr);
+              const iIdx = interviews.findIndex((i: any) => i._id === interviewSessionId);
+              if (iIdx > -1) {
+                interviews[iIdx].history = updatedHistory;
+                localStorage.setItem("skillviva_interviews", JSON.stringify(interviews));
+              }
+            }
           }
 
           setStatus("FEEDBACK");

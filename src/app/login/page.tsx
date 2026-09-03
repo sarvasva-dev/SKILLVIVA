@@ -25,28 +25,12 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    try {
-      const res = await fetch("/api/auth/otp/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Failed to send OTP");
-        setLoading(false);
-        return;
-      }
-
-      setMessage("Access code sent to your email.");
+    // Mock network delay
+    setTimeout(() => {
+      setMessage("Access code sent to your email. (Hint: enter any 6 digits)");
       setStep(2);
       setLoading(false);
-    } catch (err) {
-      setError("Something went wrong. Please try again.");
-      setLoading(false);
-    }
+    }, 800);
   };
 
   const handleVerifyOTP = async (e: React.FormEvent) => {
@@ -60,31 +44,29 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    try {
-      const res = await fetch("/api/auth/otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, otp }),
-      });
+    setTimeout(() => {
+      const existingUserStr = localStorage.getItem("skillviva_user");
+      let existingUser = existingUserStr ? JSON.parse(existingUserStr) : null;
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || "Invalid OTP");
-        setLoading(false);
-        return;
+      if (!existingUser || existingUser.email !== email) {
+        existingUser = {
+          _id: crypto.randomUUID(),
+          email: email,
+          isOnboarded: false,
+          name: "",
+          createdAt: new Date().toISOString()
+        };
+        localStorage.setItem("skillviva_user", JSON.stringify(existingUser));
       }
 
-      // Check if they need onboarding
-      if (data.isNewUser || !data.isOnboarded) {
+      setLoading(false);
+
+      if (!existingUser.isOnboarded) {
         router.push("/onboarding");
       } else {
-        router.push("/upload");
+        router.push("/dashboard");
       }
-    } catch (err) {
-      setError("Something went wrong. Please try again.");
-      setLoading(false);
-    }
+    }, 600);
   };
 
   return (

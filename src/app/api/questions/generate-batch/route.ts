@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongodb";
 import { generateContentWithFallback, cleanJsonString } from "@/lib/ai";
-import { verifyToken } from "@/lib/auth";
-import { ObjectId } from "mongodb";
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,39 +10,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Role is required" }, { status: 400 });
     }
 
-    const client = await clientPromise;
-    const db = client.db("skillviva");
-
-    let userIdStr = "";
     let resumeAnalysisText = "";
-
-    const token = req.cookies.get("skillviva_token")?.value;
-    if (token) {
-      try {
-        const decoded = verifyToken(token) as any;
-        if (decoded && decoded.userId) {
-          userIdStr = decoded.userId;
-          const user = await db.collection("users").findOne({ _id: new ObjectId(userIdStr) });
-          if (user && user.resumeAnalysis) {
-            const analysis = user.resumeAnalysis;
-            resumeAnalysisText = `
+    if (resumeContext && Object.keys(resumeContext).length > 0) {
+      resumeAnalysisText = `
 Candidate's AI Resume Analysis:
-- Missing Skills for Role: ${analysis.missingSkills?.join(', ') || 'None'}
-- Key Mismatches: ${analysis.mismatches?.join(', ') || 'None'}
-- Areas for Improvement: ${analysis.improvements?.join(', ') || 'None'}
-            `;
-          }
-        }
-      } catch (e) {
-        console.error("Token verification failed in generate-batch route:", e);
-      }
+- Missing Skills for Role: ${resumeContext.missingSkills?.join(', ') || 'None'}
+- Key Mismatches: ${resumeContext.mismatches?.join(', ') || 'None'}
+- Areas for Improvement: ${resumeContext.improvements?.join(', ') || 'None'}
+      `;
     }
 
-    if (!userIdStr) {
-      return NextResponse.json({ error: "User must be logged in" }, { status: 401 });
-    }
-
-    // Always generate exactly 30 questions (10 for each level) as requested
     const persona = `
 You are an expert technical and behavioral interviewer conducting a mock interview for the role of ${role}.
 Generate EXACTLY 30 highly personalized interview questions based strictly on the candidate's resume provided below.
@@ -69,7 +43,7 @@ Expected JSON Array format:
 ]
 
 Resume:
-${resumeContext?.substring(0, 4000) || "Candidate has not provided a detailed resume."}
+${resumeContext?.feedback ? resumeContext.feedback.substring(0, 4000) : "Candidate has not provided a detailed resume."}
 
 ${resumeAnalysisText}
     `;
@@ -90,9 +64,16 @@ ${resumeAnalysisText}
         const lastBraceIndex = responseText.lastIndexOf('}');
         if (lastBraceIndex !== -1) {
           let salvagedText = responseText.substring(0, lastBraceIndex + 1);
-          if (salvagedText.includes('[')) {
+          if (!salvagedText.startsWith('[')) {
              const startIdx = salvagedText.indexOf('[');
-             salvagedText = salvagedText.substring(startIdx) + ']';
+             if (startIdx !== -1) {
+               salvagedText = salvagedText.substring(startIdx);
+             } else {
+               salvagedText = '[' + salvagedText;
+             }
+          }
+          if (!salvagedText.endsWith(']')) {
+             salvagedText = salvagedText + ']';
           }
           questionsData = JSON.parse(salvagedText);
           if (!Array.isArray(questionsData)) {
@@ -104,12 +85,9 @@ ${resumeAnalysisText}
         }
       } catch (salvageErr) {
         console.error("Failed to salvage batch JSON", salvageErr);
-        console.error("Original parse error:", parseErr);
-        // Do not return 500 here, use fallback instead.
       }
     }
 
-    // Ultimate Fallback: if questionsData is empty or not an array, provide generic questions
     if (!Array.isArray(questionsData) || questionsData.length === 0) {
       console.warn("Using ultimate fallback generic questions because LLM generation failed completely.");
       questionsData = [
@@ -126,27 +104,14 @@ ${resumeAnalysisText}
       ];
     }
 
-    // Format for DB insertion
-    const docsToInsert = questionsData.map((q: any) => ({
-      user_id: new ObjectId(userIdStr),
-      role_id: role,
+    const formattedQuestions = questionsData.map((q: any) => ({
       difficulty: q.difficulty || "Level 1",
       text: q.text,
-      createdAt: new Date(),
-      used: false
+      used: false,
+      id: crypto.randomUUID()
     }));
 
-    if (docsToInsert.length > 0) {
-      // Optional: Delete previous custom questions for this role/user to prevent infinite buildup
-      await db.collection("custom_questions").deleteMany({
-        user_id: new ObjectId(userIdStr),
-        role_id: role
-      });
-
-      await db.collection("custom_questions").insertMany(docsToInsert);
-    }
-
-    return NextResponse.json({ success: true, count: docsToInsert.length });
+    return NextResponse.json({ success: true, questions: formattedQuestions });
 
   } catch (error) {
     console.error("Batch generation error:", error);

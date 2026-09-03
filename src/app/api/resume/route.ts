@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateContentWithFallback, cleanJsonString } from "@/lib/ai";
-import { verifyToken } from "@/lib/auth";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,25 +42,6 @@ ${text.substring(0, 5000)}
     const responseText = cleanJsonString(rawResponse);
 
     const data = JSON.parse(responseText);
-
-    // Save to user DB if authenticated
-    const token = req.cookies.get("skillviva_token")?.value;
-    if (token) {
-      const decoded = verifyToken(token) as any;
-      if (decoded && decoded.userId) {
-        const client = await clientPromise;
-        const db = client.db("skillviva");
-        await db.collection("users").updateOne(
-          { _id: new ObjectId(decoded.userId) },
-          { 
-            $set: { 
-              resumeText: text.substring(0, 8000), 
-              resumeAnalysis: data 
-            } 
-          }
-        );
-      }
-    }
 
     return NextResponse.json(data);
   } catch (error) {

@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateContentWithFallback, cleanJsonString } from "@/lib/ai";
-import { verifyToken } from "@/lib/auth";
-import clientPromise from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,7 +12,7 @@ export async function POST(req: NextRequest) {
       fillerCount = 0,
       currentLevel = 1,
       role,
-      resumeContext = "",
+      resumeContext,
       recentScores = []
     } = body;
 
@@ -28,28 +25,13 @@ export async function POST(req: NextRequest) {
     }
 
     let resumeAnalysisText = "";
-    const token = req.cookies.get("skillviva_token")?.value;
-    
-    if (token) {
-      try {
-        const decoded = verifyToken(token) as any;
-        if (decoded && decoded.userId) {
-          const client = await clientPromise;
-          const db = client.db("skillviva");
-          const user = await db.collection("users").findOne({ _id: new ObjectId(decoded.userId) });
-          if (user && user.resumeAnalysis) {
-            const analysis = user.resumeAnalysis;
-            resumeAnalysisText = `
+    if (resumeContext && Object.keys(resumeContext).length > 0) {
+      resumeAnalysisText = `
 Candidate's AI Resume Analysis (Context):
-- Missing Skills for Role: ${analysis.missingSkills?.join(', ') || 'None'}
-- Key Mismatches: ${analysis.mismatches?.join(', ') || 'None'}
-- Areas for Improvement: ${analysis.improvements?.join(', ') || 'None'}
-            `;
-          }
-        }
-      } catch (e) {
-        console.error("Token verification failed in evaluate route:", e);
-      }
+- Missing Skills for Role: ${resumeContext.missingSkills?.join(', ') || 'None'}
+- Key Mismatches: ${resumeContext.mismatches?.join(', ') || 'None'}
+- Areas for Improvement: ${resumeContext.improvements?.join(', ') || 'None'}
+      `;
     }
 
     const roleText = role ? `for the role of ${role}` : "for their targeted role";
@@ -78,7 +60,7 @@ Instructions:
 5. Provide an 'idealAnswer' (3-4 sentences) showing what a perfect answer would look like for this specific question, heavily utilizing the context from the candidate's resume (if provided).
 
 Resume Context:
-${resumeContext.substring(0, 4000)}
+${resumeContext?.feedback ? resumeContext.feedback.substring(0, 4000) : "Candidate has not provided a detailed resume."}
 
 ${resumeAnalysisText}
 

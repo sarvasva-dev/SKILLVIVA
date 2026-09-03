@@ -29,9 +29,9 @@ export default function ResumePage() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const res = await fetch("/api/auth/me");
-        if (!res.ok) { router.push("/login"); return; }
-        const data = await res.json();
+        const userStr = localStorage.getItem("skillviva_user");
+        if (!userStr) { router.push("/login"); return; }
+        const data = JSON.parse(userStr);
         setUserProfile(data);
         if (data.resumeAnalysis) {
           setDetailedFeedback(data.resumeAnalysis);
@@ -100,11 +100,19 @@ export default function ResumePage() {
       const data = await response.json();
       if (data.feedback) {
         setDetailedFeedback(data as DetailedFeedback);
+        
         // Save resume context for interview
         localStorage.setItem("skillviva_resume_context", JSON.stringify({
           text,
           expires: Date.now() + 1000 * 60 * 60 * 24
         }));
+
+        // Update user profile
+        if (userProfile) {
+          const updatedUser = { ...userProfile, resumeAnalysis: data as DetailedFeedback };
+          setUserProfile(updatedUser);
+          localStorage.setItem("skillviva_user", JSON.stringify(updatedUser));
+        }
       }
     } catch (error) {
       console.error("Analysis error:", error);
