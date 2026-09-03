@@ -1,16 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateContentWithFallback, cleanJsonString } from "@/lib/ai";
+// @ts-ignore
+import PDFParser from "pdf2json";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { text, targetRole } = body;
+    const formData = await req.formData();
+    const file = formData.get("file") as File;
+    const targetRole = formData.get("targetRole") as string;
 
-    if (!text) {
-      return NextResponse.json({ error: "No text provided" }, { status: 400 });
+    if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const roleContext = targetRole ? `You are evaluating this candidate STRICTLY for the role of: "${targetRole}".` : `Guess the candidate's target role based on their resume.`;
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    
+    let text = "";
+    try {
+      text = await new Promise<string>((resolve, reject) => {
+        const pdfParser = new PDFParser(null, true);
+        pdfParser.on("pdfParser_dataError", (errData: any) => reject(errData.parserError));
+        pdfParser.on("pdfParser_dataReady", () => {
+          resolve(pdfParser.getRawTextContent());
+        });
+        pdfParser.parseBuffer(buffer);
+      });
+    } catch (parseError) {
+      console.error("PDF2JSON Parsing error:", parseError);
+      return NextResponse.json({ error: "Could not extract text from PDF. Ensure it's a valid PDF document." }, { status: 400 });
+    }
+
+    if (!text || text.trim() === "") {
+       return NextResponse.json({ error: "Could not extract text from PDF." }, { status: 400 });
+    }
+
+    const roleContext = targetRole && targetRole !== "Unknown" 
+        ? `You are evaluating this candidate STRICTLY for the role of: "${targetRole}".` 
+        : `Guess the candidate's target role based on their resume.`;
 
     const persona = `
 You are an expert, brutally honest technical recruiter and ATS software evaluator.
@@ -41,9 +68,19 @@ ${text.substring(0, 5000)}
     const rawResponse = await generateContentWithFallback(persona);
     const responseText = cleanJsonString(rawResponse);
 
-    const data = JSON.parse(responseText);
+    let data;
+    try {
+      // Fix potential trailing commas in JSON array/object ends
+      const sanitized = responseText.replace(/,\s*([\}\]])/g, '$1').replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+      data = JSON.parse(sanitized);
+    } catch (parseError) {
+      console.error("Failed to parse JSON. Raw response was:");
+      console.error(responseText);
+      throw parseError;
+    }
 
-    return NextResponse.json(data);
+    // Send back both the analysis and the parsed text so the client can save it
+    return NextResponse.json({ ...data, extractedText: text });
   } catch (error) {
     console.error("Resume analysis error:", error);
     return NextResponse.json({ error: "Failed to analyze resume" }, { status: 500 });

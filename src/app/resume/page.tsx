@@ -20,7 +20,7 @@ interface DetailedFeedback {
 export default function ResumePage() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [status, setStatus] = useState<"IDLE" | "EXTRACTING" | "ANALYZING" | "DONE">("IDLE");
+  const [status, setStatus] = useState<"IDLE" | "ANALYZING" | "DONE">("IDLE");
   const [detailedFeedback, setDetailedFeedback] = useState<DetailedFeedback | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -47,75 +47,57 @@ export default function ResumePage() {
   const handleFileChange = async (selectedFile: File) => {
     if (selectedFile && selectedFile.type === "application/pdf") {
       setFile(selectedFile);
-      await extractTextFromPDF(selectedFile);
+      await analyzeResume(selectedFile);
     } else {
       alert("Please upload a valid PDF file.");
     }
   };
 
-  const extractTextFromPDF = async (pdfFile: File) => {
-    setStatus("EXTRACTING");
-    try {
-      // [HACKATHON NOTE FOR JUDGES]:
-      // We load pdfjs-dist directly in the browser. 
-      // Why? Extracting PDF text on the backend requires heavy Python/Node libraries that consume immense RAM.
-      // By shifting this workload to the client's browser, our backend is completely freed from 
-      // processing binary files, saving huge costs and enabling infinite scalability during the hackathon.
-      if (typeof (Math as any).sumPrecise !== "function") {
-        (Math as any).sumPrecise = function (numbers: any) {
-          let sum = 0;
-          for (const n of numbers) { sum += Number(n) || 0; }
-          return sum;
-        };
-      }
-      const pdfjsLib = await import("pdfjs-dist");
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-      const arrayBuffer = await pdfFile.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      let text = "";
-      const maxPages = Math.min(pdf.numPages, 3);
-      for (let i = 1; i <= maxPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const pageText = content.items.map((item: any) => item.str).join(" ");
-        text += pageText + "\n";
-      }
-      await analyzeResume(text);
-    } catch (error) {
-      console.error("PDF Extraction Error:", error);
-      setStatus("IDLE");
-      alert("Failed to read PDF. Make sure it is not corrupted or password protected.");
-    }
-  };
-
-  const analyzeResume = async (text: string) => {
+  const analyzeResume = async (pdfFile: File) => {
     setStatus("ANALYZING");
     try {
       const targetRole = userProfile?.targetRole || "Unknown";
+      
+      const formData = new FormData();
+      formData.append("file", pdfFile);
+      formData.append("targetRole", targetRole);
+
       const response = await fetch("/api/resume", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, targetRole }),
+        body: formData,
       });
+      
       const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to analyze resume");
+      }
+
       if (data.feedback) {
-        setDetailedFeedback(data as DetailedFeedback);
+        // Exclude the extractedText from the feedback object to keep it clean, but save it separately
+        const { extractedText, ...feedbackDetails } = data;
+        
+        setDetailedFeedback(feedbackDetails as DetailedFeedback);
         
         // Save resume context for interview
-        localStorage.setItem("skillviva_resume_context", JSON.stringify({
-          text,
-          expires: Date.now() + 1000 * 60 * 60 * 24
-        }));
+        if (extractedText) {
+           localStorage.setItem("skillviva_resume_context", JSON.stringify({
+             text: extractedText,
+             expires: Date.now() + 1000 * 60 * 60 * 24
+           }));
+        }
 
         // Update user profile
         if (userProfile) {
-          const updatedUser = { ...userProfile, resumeAnalysis: data as DetailedFeedback };
+          const updatedUser = { ...userProfile, resumeAnalysis: feedbackDetails as DetailedFeedback };
           setUserProfile(updatedUser);
           localStorage.setItem("skillviva_user", JSON.stringify(updatedUser));
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Analysis error:", error);
+      alert(error.message || "Something went wrong during analysis.");
+      setFile(null);
     } finally {
       setStatus("DONE");
     }
@@ -155,14 +137,14 @@ export default function ResumePage() {
         )}
 
         {/* Loading */}
-        {(status === "EXTRACTING" || status === "ANALYZING") && (
+        {status === "ANALYZING" && (
           <div className="card-gritty py-20 flex flex-col items-center justify-center text-center">
             <div className="w-14 h-14 border-4 border-[#222] border-t-[#e63329] rounded-full animate-spin mb-6" />
             <h3 className="brush-text text-2xl text-white mb-2">
-              {status === "EXTRACTING" ? "PROCESSING DOCUMENT..." : "EVALUATION IN PROGRESS..."}
+              EVALUATION IN PROGRESS...
             </h3>
             <p className="font-body text-[#555] text-sm">
-              {status === "ANALYZING" ? `Comparing against ${userProfile?.targetRole || "your role"}...` : "Extracting text from your resume..."}
+              Extracting and comparing against {userProfile?.targetRole || "your role"}...
             </p>
           </div>
         )}
