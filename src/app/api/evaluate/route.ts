@@ -133,9 +133,9 @@ Output your response strictly in the following JSON format:
 
     const normalizedCurrentLevel = Math.max(1, Math.min(3, Number(currentLevel) || 1));
     let targetLevel = 2;
-    if (rollingAverage < 56) {
+    if (rollingAverage < 5) {
       targetLevel = 1;
-    } else if (rollingAverage >= 76) {
+    } else if (rollingAverage >= 7.5) {
       targetLevel = 3;
     }
 
