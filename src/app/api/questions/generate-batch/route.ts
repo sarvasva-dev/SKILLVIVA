@@ -48,8 +48,14 @@ ${resumeContext?.feedback ? resumeContext.feedback.substring(0, 4000) : "Candida
 ${resumeAnalysisText}
     `;
 
-    // 9 seconds timeout to fit within Netlify 10-second serverless execution limit
-    const rawResponse = await generateContentWithFallback(persona, 4000, 0.7, 9000);
+    let rawResponse = "";
+    try {
+      // 8.5 seconds timeout to guarantee completion before Netlify 10-second limit
+      rawResponse = await generateContentWithFallback(persona, 4000, 0.7, 8500);
+    } catch (llmErr) {
+      console.warn("LLM API call timed out or failed, proceeding with fallback batch questions:", llmErr);
+      rawResponse = "";
+    }
     const responseText = cleanJsonString(rawResponse);
 
     let questionsData = [];
