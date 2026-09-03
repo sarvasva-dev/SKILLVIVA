@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     } else {
       const errText = await response.text();
       console.error(`Sarvam STT returned status ${response.status}: ${errText}`);
-      return NextResponse.json({ error: "Sarvam STT failed." }, { status: 500 });
+      return NextResponse.json({ transcript: "", fallback: true });
     }
 
     return NextResponse.json({
@@ -52,6 +52,6 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.error("STT Route Error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ transcript: "", fallback: true });
   }
 }

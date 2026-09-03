@@ -16,11 +16,17 @@ export async function POST(req: NextRequest) {
       recentScores = []
     } = body;
 
-    if (!answer || answer.trim().length < 5) {
+    if (!answer || answer.trim().length < 5 || answer.includes("[No clear audio")) {
+      const defaultIdeal = question
+        ? `To effectively answer "${question}", outline your strategic framework, quantify your achievements with data/metrics, and demonstrate cross-functional leadership relevant to the ${role || 'targeted'} role.`
+        : `A strong response should clearly define the problem context, outline your key actions, and present measurable business impact.`;
+
       return NextResponse.json({
         score: 0,
-        feedback: "You didn't provide a meaningful answer. Please try to speak clearly.",
-        nextLevel: 1
+        feedback: "No clear spoken answer was detected. Practice articulating your experience with confidence and direct data points.",
+        idealAnswer: defaultIdeal,
+        nextLevel: 1,
+        rollingAverage: 0
       });
     }
 

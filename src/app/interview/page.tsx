@@ -357,21 +357,28 @@ export default function InterviewPage() {
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
 
         try {
-          const formData = new FormData();
-          const ext = mimeType.split(";")[0].split("/")[1] || "webm";
-          formData.append("file", audioBlob, `speech.${ext}`);
+          let voiceTranscript = "";
+          try {
+            const formData = new FormData();
+            const ext = mimeType.split(";")[0].split("/")[1] || "webm";
+            formData.append("file", audioBlob, `speech.${ext}`);
 
-          const sttRes = await fetch("/api/stt", {
-            method: "POST",
-            body: formData
-          });
+            const sttRes = await fetch("/api/stt", {
+              method: "POST",
+              body: formData
+            });
 
-          if (!sttRes.ok) {
-            throw new Error("STT processing failed");
+            if (sttRes.ok) {
+              const sttData = await sttRes.json();
+              voiceTranscript = sttData.transcript || "";
+            }
+          } catch (sttErr) {
+            console.warn("STT fetch failed, proceeding with fallback transcript:", sttErr);
           }
 
-          const sttData = await sttRes.json();
-          const voiceTranscript = sttData.transcript || "";
+          if (!voiceTranscript || voiceTranscript.trim() === "") {
+            voiceTranscript = "[No clear audio detected]";
+          }
           setTranscript(voiceTranscript);
 
           const fillerPattern = /\b(um+|uh+|er+|ah+|like|you know|basically|literally|kind of|sort of|i mean|so yeah|actually actually)\b/gi;
