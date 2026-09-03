@@ -23,13 +23,11 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         inputs: [text.substring(0, 500)], // Limit to avoid long processing
         target_language_code: "en-IN",
-        speaker: "anushka", // Indian English female voice
-        pitch: 0,
+        speaker: "priya", // Indian English female voice
         pace: 1.0,
-        loudness: 1.5,
         speech_sample_rate: 8000,
         enable_preprocessing: true,
-        model: "bulbul:v2"
+        model: "bulbul:v3"
       })
     });
 

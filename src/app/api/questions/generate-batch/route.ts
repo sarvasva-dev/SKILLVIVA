@@ -22,12 +22,12 @@ Candidate's AI Resume Analysis:
 
     const persona = `
 You are an expert technical and behavioral interviewer conducting a mock interview for the role of ${role}.
-Generate EXACTLY 30 highly personalized interview questions based strictly on the candidate's resume provided below.
+Generate EXACTLY 10 highly personalized interview questions based strictly on the candidate's resume provided below.
 
 DISTRIBUTION:
-- 10 Questions at Level 1 (Foundational / Basic / Introduction)
-- 10 Questions at Level 2 (Intermediate / Scenario-based / Problem-solving)
-- 10 Questions at Level 3 (Advanced / Complex / Stress-test / Deep dive)
+- 4 Questions at Level 1 (Foundational / Basic / Introduction)
+- 3 Questions at Level 2 (Intermediate / Scenario-based / Problem-solving)
+- 3 Questions at Level 3 (Advanced / Complex / Stress-test / Deep dive)
 
 CRITICAL REQUIREMENTS:
 1. Make the questions conversational, direct, and brutally honest.
@@ -48,8 +48,8 @@ ${resumeContext?.feedback ? resumeContext.feedback.substring(0, 4000) : "Candida
 ${resumeAnalysisText}
     `;
 
-    // 80 seconds timeout for generating 30 questions
-    const rawResponse = await generateContentWithFallback(persona, 4000, 0.7, 80000);
+    // 9 seconds timeout to fit within Netlify 10-second serverless execution limit
+    const rawResponse = await generateContentWithFallback(persona, 4000, 0.7, 9000);
     const responseText = cleanJsonString(rawResponse);
 
     let questionsData = [];

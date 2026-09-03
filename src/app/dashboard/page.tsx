@@ -317,10 +317,10 @@ export default function DashboardPage() {
                 style={{ background: "#e63329", color: "#fff" }}
               >
                 {isGenerating ? (
-                  <span className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                     PREPARING INTERVIEW...
-                  </span>
+                  </div>
                 ) : (
                   <>▶ {(selectedRole === "Other" ? customRole : selectedRole) !== (user?.targetRole || "") ? "SAVE & START INTERVIEW" : "START INTERVIEW"}</>
                 )}
