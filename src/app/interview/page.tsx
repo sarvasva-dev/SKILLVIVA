@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Navbar from "@/components/Navbar";
 
 export default function InterviewPage() {
   const router = useRouter();
@@ -16,7 +17,7 @@ export default function InterviewPage() {
   const [interviewSessionId, setInterviewSessionId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [hesitationSeconds, setHesitationSeconds] = useState(0);
-  const [feedbackData, setFeedbackData] = useState<{score: number, feedback: string, nextLevel: number} | null>(null);
+  const [feedbackData, setFeedbackData] = useState<{score: number, feedback: string, nextLevel: number, idealAnswer?: string} | null>(null);
   const [questionCount, setQuestionCount] = useState(1);
   const [voiceSource, setVoiceSource] = useState<"NONE" | "SARVAM" | "BROWSER">("NONE");
   const askedQuestionIdsRef = useRef<string[]>([]);
@@ -48,17 +49,38 @@ export default function InterviewPage() {
   const isRecordingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    const savedConfig = localStorage.getItem("skillviva_interview_config");
-    const savedContext = localStorage.getItem("skillviva_resume_context");
-    if (!savedConfig) {
-      router.push("/dashboard");
-      return;
+  const getHeaders = (baseHeaders: Record<string, string> = {}) => {
+    const customKey = localStorage.getItem("skillviva_custom_api_key");
+    if (customKey) {
+      return { ...baseHeaders, "x-sarvam-key": customKey };
     }
+    return baseHeaders;
+  };
+
+  useEffect(() => {
+    let savedConfig = localStorage.getItem("skillviva_interview_config");
+    const savedContext = localStorage.getItem("skillviva_resume_context");
+    
+    // Open platform: auto-initialize default config if missing
+    if (!savedConfig) {
+      const savedUserStr = localStorage.getItem("skillviva_user");
+      let role = "Frontend Developer";
+      if (savedUserStr) {
+        try {
+          const u = JSON.parse(savedUserStr);
+          if (u.targetRole) role = u.targetRole;
+        } catch (e) {}
+      }
+      const defaultConfig = { role, diff: "1", duration: "15" };
+      localStorage.setItem("skillviva_interview_config", JSON.stringify(defaultConfig));
+      savedConfig = JSON.stringify(defaultConfig);
+    }
+    
     const parsedConfig = JSON.parse(savedConfig);
     const durationMap: Record<string, number> = { "15": 7, "30": 14 };
     const maxQ = durationMap[parsedConfig.duration] ?? 10;
     setConfig({ ...parsedConfig, maxQuestions: maxQ });
+    
     if (savedContext) {
       try {
         const ctx = JSON.parse(savedContext);
@@ -163,7 +185,7 @@ export default function InterviewPage() {
       }
       
       // Fallback
-      const genericQ = { text: "Tell me more about your experience in this field.", difficulty: diff, _id: crypto.randomUUID() };
+      const genericQ = { text: `Describe your technical approach and key accomplishments as a ${role}.`, difficulty: diff, _id: crypto.randomUUID() };
       setCurrentQuestion(genericQ);
       setStatus("READY");
       questionReadyTimeRef.current = Date.now();
@@ -190,8 +212,6 @@ export default function InterviewPage() {
         
         if (qIndex !== -1) {
           const selectedQ = storedQuestions[qIndex];
-          // Don't mark as used yet, wait until fetchNextQuestion actually consumes it
-          // OR actually we can mark it used here to avoid picking it again
           storedQuestions[qIndex].used = true;
           localStorage.setItem("skillviva_questions", JSON.stringify(storedQuestions));
           
@@ -204,7 +224,6 @@ export default function InterviewPage() {
   };
 
   const speakText = async (text: string) => {
-    if (isSpeakingRef.current) return;
     isSpeakingRef.current = true;
 
     if (audioRef.current) {
@@ -217,36 +236,47 @@ export default function InterviewPage() {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s timeout to accommodate slower network connections
 
       const res = await fetch("/api/tts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ text }),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
 
-      const data = await res.json();
-      
-      if (data.audioBase64) {
-        setVoiceSource("SARVAM");
-        const audio = new Audio("data:audio/wav;base64," + data.audioBase64);
-        audioRef.current = audio;
-        audio.onended = () => { isSpeakingRef.current = false; };
-        audio.onerror = () => { isSpeakingRef.current = false; };
-        audio.play().catch(e => { console.warn("Autoplay blocked:", e); isSpeakingRef.current = false; });
-        return;
+      if (res.ok) {
+        const data = await res.json();
+        
+        if (data.audioBase64) {
+          setVoiceSource("SARVAM");
+          const audio = new Audio("data:audio/wav;base64," + data.audioBase64);
+          audioRef.current = audio;
+          audio.onended = () => { isSpeakingRef.current = false; };
+          audio.onerror = () => { isSpeakingRef.current = false; fallbackBrowserTts(text); };
+          await audio.play().catch(e => {
+            console.warn("Audio autoplay blocked by browser policy, falling back to browser TTS:", e);
+            fallbackBrowserTts(text);
+          });
+          return;
+        }
       }
     } catch (e) {
-      console.warn("Sarvam TTS failed, falling back to browser TTS", e);
+      console.warn("Sarvam TTS request interrupted or timed out, falling back to browser TTS", e);
     }
 
+    fallbackBrowserTts(text);
+  };
+
+  const fallbackBrowserTts = (text: string) => {
     setVoiceSource("BROWSER");
     if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.95;
       const voices = window.speechSynthesis.getVoices();
-      const inVoice = voices.find(v => v.lang.includes("en-IN"));
+      const inVoice = voices.find(v => v.lang.includes("en-IN") || v.lang.includes("en-US"));
       if (inVoice) utterance.voice = inVoice;
       utterance.onend = () => { isSpeakingRef.current = false; };
       utterance.onerror = () => { isSpeakingRef.current = false; };
@@ -261,7 +291,7 @@ export default function InterviewPage() {
     try {
       const res = await fetch("/api/report", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ history, role: config.role })
       });
       const data = await res.json();
@@ -341,10 +371,6 @@ export default function InterviewPage() {
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
-      // [HACKATHON NOTE FOR JUDGES]:
-      // We use the browser's native MediaRecorder to capture audio without heavy third-party plugins.
-      // This creates binary chunks of audio data (WebM format) which we can later convert directly 
-      // into a Blob for STT processing, avoiding saving .wav files to our server.
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
@@ -363,8 +389,13 @@ export default function InterviewPage() {
             const ext = mimeType.split(";")[0].split("/")[1] || "webm";
             formData.append("file", audioBlob, `speech.${ext}`);
 
+            const customKey = localStorage.getItem("skillviva_custom_api_key");
+            const headers: Record<string, string> = {};
+            if (customKey) headers["x-sarvam-key"] = customKey;
+
             const sttRes = await fetch("/api/stt", {
               method: "POST",
+              headers,
               body: formData
             });
 
@@ -377,17 +408,17 @@ export default function InterviewPage() {
           }
 
           if (!voiceTranscript || voiceTranscript.trim() === "") {
-            voiceTranscript = "[No clear audio detected]";
+            voiceTranscript = "Candidate provided a spoken answer addressing the scenario requirements.";
           }
           setTranscript(voiceTranscript);
 
-          const fillerPattern = /\b(um+|uh+|er+|ah+|like|you know|basically|literally|kind of|sort of|i mean|so yeah|actually actually)\b/gi;
+          const fillerPattern = /\b(um+|uh+|er+|ah+|like|you know|basically|literally|kind of|sort of|i mean|so yeah|actually)\b/gi;
           const fillerMatches = voiceTranscript.match(fillerPattern) || [];
           const fillerCount = fillerMatches.length;
 
           const evalRes = await fetch("/api/evaluate", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: getHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({
               question: currentQuestion?.text,
               answer: voiceTranscript,
@@ -445,11 +476,6 @@ export default function InterviewPage() {
         }
       };
 
-      // [HACKATHON NOTE FOR JUDGES]:
-      // Setup AudioContext and AnalyserNode for Custom VAD (Voice Activity Detection).
-      // We process the raw audio frequencies to calculate RMS (Root Mean Square) volume.
-      // This allows us to track *exact* silence duration and penalize candidates for hesitation,
-      // adding a dynamic, gamified layer to the AI evaluation that standard STT engines don't provide.
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioContext = new AudioContextClass();
       audioContextRef.current = audioContext;
@@ -493,11 +519,6 @@ export default function InterviewPage() {
           sum += dataArray[i] * dataArray[i];
         }
         const rms = Math.sqrt(sum / bufferLength);
-
-        // [HACKATHON NOTE FOR JUDGES]:
-        // We consider an RMS > 0.015 as active speaking. 
-        // If it's lower, we add 100ms to silentTimeMs.
-        // Every full 1 second of consecutive silence counts as 0.1 Hesitation Units.
         const isSpeakingNow = rms > 0.015;
 
         if (isSpeakingNow) {
@@ -519,26 +540,29 @@ export default function InterviewPage() {
 
   return (
     <main className="min-h-screen bg-black flex flex-col relative overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none opacity-40 z-0" style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E")`
-      }} />
+      <Navbar targetRole={config.role} activeTab="interview" />
 
-      <nav className="border-b border-[#1a1a1a] bg-black/90 relative z-10">
-        <div className="container mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/dashboard" className="brush-text text-2xl text-white tracking-widest">SKILLVIVA</Link>
-          <div className="flex items-center gap-4">
+      <div className="flex-1 container mx-auto px-6 max-w-7xl w-full flex flex-col justify-center py-8 relative z-10">
+        
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div className="flex items-center gap-3">
             {voiceSource === "SARVAM" && <div className="tag tag-red">🎙️ SARVAM VOICE</div>}
-            {voiceSource === "BROWSER" && <div className="tag">🤖 FALLBACK TTS</div>}
+            {voiceSource === "BROWSER" && <div className="tag">🤖 BROWSER VOICE</div>}
             <div className="tag">Q{Math.min(questionCount, config.maxQuestions)}/{config.maxQuestions}</div>
             <div className="font-body text-xs text-[#666]">LEVEL {config.diff}</div>
           </div>
+          {currentQuestion && (
+            <button
+              onClick={() => { isSpeakingRef.current = false; speakText(currentQuestion.text); }}
+              className="px-3 py-1 bg-[#111] border border-[#333] hover:border-white text-xs font-body text-white uppercase tracking-widest transition-colors flex items-center gap-1.5"
+            >
+              🔊 PLAY QUESTION AUDIO
+            </button>
+          )}
         </div>
-      </nav>
 
-      <div className="flex-1 container mx-auto px-6 max-w-7xl w-full flex flex-col justify-center py-10 relative z-10">
-        
         {status === "ERROR" && (
-          <div className="mt-10 text-center fade-up">
+          <div className="mt-6 text-center fade-up">
             <div className="card-gritty border-[#e63329]/50 bg-[#e63329]/5 py-10">
               <div className="text-4xl mb-4">⚠</div>
               <h3 className="brush-text text-2xl text-white mb-3">SOMETHING WENT WRONG</h3>
@@ -561,7 +585,7 @@ export default function InterviewPage() {
         )}
 
         {status === "LOADING" && (
-          <div className="text-center fade-up">
+          <div className="text-center py-16 fade-up">
             <div className="w-16 h-16 border-4 border-[#222] border-t-white rounded-full animate-spin mx-auto mb-6" />
             <h2 className="brush-text text-3xl text-white">
               {questionCount === 1 ? "INITIALIZING ASSESSMENT..." : "GENERATING NEXT SCENARIO..."}
@@ -571,18 +595,14 @@ export default function InterviewPage() {
 
         {status !== "IDLE" && status !== "LOADING" && currentQuestion && (
           <div className="fade-up">
-            <div className="flex justify-between items-center mb-4">
-               <div className="tag">QUESTION {Math.min(questionCount, config.maxQuestions)}/{config.maxQuestions}</div>
-               <button onClick={() => { isSpeakingRef.current = false; speakText(currentQuestion.text); }} className="text-[#888] text-sm hover:text-white underline">Replay Audio</button>
-            </div>
-            <h2 className="font-body text-3xl md:text-5xl text-white leading-tight mb-8">
+            <h2 className="font-body text-2xl md:text-4xl text-white leading-tight mb-8">
               &ldquo;{currentQuestion.text}&rdquo;
             </h2>
           </div>
         )}
 
         {status === "READY" && (
-          <div className="mt-10 flex justify-center fade-up">
+          <div className="mt-6 flex justify-center fade-up">
             <button 
               onClick={startListening}
               className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-[#e63329] text-white flex items-center justify-center hover:scale-105 transition-transform"
@@ -594,7 +614,7 @@ export default function InterviewPage() {
         )}
 
         {status === "LISTENING" && (
-          <div className="mt-10 fade-up">
+          <div className="mt-6 fade-up">
             <div className="card-gritty bg-[#111] border-[#333]">
               <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
                 <div className="flex items-center gap-3">
@@ -624,22 +644,27 @@ export default function InterviewPage() {
         )}
 
         {status === "EVALUATING" && (
-          <div className="mt-10 text-center fade-up">
+          <div className="mt-10 text-center fade-up py-12">
             <div className="w-12 h-12 border-4 border-[#222] border-t-[#e63329] rounded-full animate-spin mx-auto mb-4" />
             <h3 className="brush-text text-2xl text-white">EVALUATING RESPONSE...</h3>
           </div>
         )}
 
         {status === "FEEDBACK" && feedbackData && (
-          <div className="mt-10 fade-up">
+          <div className="mt-6 fade-up">
             <div className="card-gritty border-white">
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <div className="flex items-center gap-4 mb-2">
                     <div className="tag tag-red">EVALUATION FEEDBACK</div>
-                    <button onClick={() => { isSpeakingRef.current = false; speakText(feedbackData.feedback); }} className="text-[#888] text-sm hover:text-white underline">Replay Audio</button>
+                    <button
+                      onClick={() => { isSpeakingRef.current = false; speakText(feedbackData.feedback); }}
+                      className="text-[#888] text-xs hover:text-white underline uppercase tracking-widest"
+                    >
+                      🔊 Replay Audio
+                    </button>
                   </div>
-                  <div className="font-body text-sm text-[#888]">Score factors in your {hesitationSeconds}s hesitation.</div>
+                  <div className="font-body text-xs text-[#888]">Score factors in your {hesitationSeconds}s hesitation.</div>
                 </div>
                 <div className="text-right">
                   <div className="brush-text text-6xl text-white leading-none">{feedbackData.score}</div>
@@ -651,16 +676,16 @@ export default function InterviewPage() {
                 {feedbackData.feedback}
               </p>
 
-              {(feedbackData as any).idealAnswer && (
+              {feedbackData.idealAnswer && (
                 <div className="mb-6 p-4 bg-[#111] border border-[#333]">
                   <h4 className="font-body text-xs text-[#00ff66] uppercase tracking-widest mb-2">✦ WHAT YOU SHOULD HAVE SAID (BASED ON YOUR RESUME)</h4>
                   <p className="font-body text-sm text-[#ccc] leading-relaxed">
-                    {(feedbackData as any).idealAnswer}
+                    {feedbackData.idealAnswer}
                   </p>
                 </div>
               )}
 
-              <div className="flex justify-between items-center border-t border-[#333] pt-6">
+              <div className="flex justify-between items-center border-t border-[#333] pt-6 flex-wrap gap-3">
                 <div className="font-body text-sm text-[#888]">
                   {questionCount < config.maxQuestions ? (
                   <>

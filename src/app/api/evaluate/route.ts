@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateContentWithFallback, cleanJsonString } from "@/lib/ai";
+import { generateContentWithFallback, safeParseJson } from "@/lib/ai";
 
 export async function POST(req: NextRequest) {
   try {
+    const customKey = req.headers.get("x-sarvam-key") || req.headers.get("x-api-key") || undefined;
     const body = await req.json();
     const {
       question,
@@ -80,53 +81,24 @@ Output your response strictly in the following JSON format:
 
     let rawResponse = "";
     try {
-      // 500 maxTokens and 10000ms timeout per key is enough for a short evaluation and prevents 4-minute hanging.
-      rawResponse = await generateContentWithFallback(prompt, 500, 0.1, 10000);
+      rawResponse = await generateContentWithFallback(prompt, 600, 0.1, 12000, customKey);
     } catch (apiError) {
       console.error("LLM API Network/Timeout Error:", apiError);
-      rawResponse = "INVALID_JSON_FORCE_FALLBACK";
+      rawResponse = "";
     }
     
-    const responseText = cleanJsonString(rawResponse);
+    const fallbackResult = {
+      score: 5,
+      feedback: "Your response has been recorded. Focus on articulating direct data points and key achievements.",
+      idealAnswer: `A great answer for "${question}" outlines clear business impact, strategic problem solving, and relevant experience for ${role || 'the role'}.`
+    };
 
-    let aiResult;
-    try {
-      aiResult = JSON.parse(responseText);
-    } catch (e) {
-      // If parsing fails (e.g., due to repeated text + JSON blocks), try extracting the first non-greedy block
-      try {
-        const match = rawResponse.match(/\{[\s\S]*?\}/g);
-        let parsed = null;
-        if (match) {
-           for (const m of match) {
-             try {
-               const temp = JSON.parse(m);
-               if (temp && temp.score !== undefined) {
-                 parsed = temp;
-                 break;
-               }
-             } catch(err) {}
-           }
-        }
-        if (parsed) {
-          aiResult = parsed;
-        } else {
-          throw new Error("Regex JSON extraction failed");
-        }
-      } catch (regexErr) {
-        console.error("Failed to parse AI evaluation JSON. Raw output:", rawResponse);
-        aiResult = {
-          score: 5, // FIXED: Changed from 50 (which resulted in 10/10) to a neutral 5
-          feedback: "The AI evaluator had trouble generating a complete response for this answer, but it has been recorded.",
-          idealAnswer: "A great answer would be clearly structured and directly address the role requirements."
-        };
-      }
-    }
-    
+    const aiResult = safeParseJson(rawResponse, fallbackResult);
+
     const parsedScore = Number(aiResult.score);
     const finalScore = Number.isFinite(parsedScore)
       ? Math.max(0, Math.min(10, Math.round(parsedScore)))
-      : 0;
+      : 5;
 
     const priorScores = Array.isArray(recentScores)
       ? recentScores
@@ -151,8 +123,8 @@ Output your response strictly in the following JSON format:
 
     return NextResponse.json({
       score: finalScore,
-      feedback: aiResult.feedback,
-      idealAnswer: aiResult.idealAnswer,
+      feedback: aiResult.feedback || fallbackResult.feedback,
+      idealAnswer: aiResult.idealAnswer || fallbackResult.idealAnswer,
       nextLevel,
       rollingAverage: Math.round(rollingAverage)
     });

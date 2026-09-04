@@ -65,11 +65,11 @@ export default function HomePage() {
         <div className="max-w-7xl w-full mx-auto px-6 h-16 flex items-center justify-between">
           <span className="brush-text text-white text-2xl tracking-widest">SKILLVIVA</span>
           <div className="flex items-center gap-3">
-            <Link href="/login" className="font-body text-xs text-[#888] uppercase tracking-widest hover:text-white transition-colors">
-              Login
+            <Link href="/dashboard" className="font-body text-xs text-[#888] uppercase tracking-widest hover:text-white transition-colors">
+              Dashboard
             </Link>
-            <Link href="/login" className="btn-primary py-2 px-4 text-xs">
-              GET STARTED
+            <Link href="/dashboard" className="btn-primary py-2 px-4 text-xs">
+              ENTER ARENA ▶
             </Link>
           </div>
         </div>
@@ -86,7 +86,7 @@ export default function HomePage() {
         <div className="relative z-10 max-w-3xl mx-auto">
           <div className="inline-flex items-center gap-2 border border-[#e63329]/30 bg-[#e63329]/10 px-3 py-1.5 mb-8 rounded-sm">
             <span className="w-1.5 h-1.5 bg-[#e63329] rounded-full animate-pulse" />
-            <span className="font-body text-xs text-[#e63329] uppercase tracking-widest">Powered by Sarvam AI Voice</span>
+            <span className="font-body text-xs text-[#e63329] uppercase tracking-widest">Open Platform Voice AI</span>
           </div>
 
           <h1 className="brush-text text-white leading-none mb-6" style={{ fontSize: "clamp(3rem, 12vw, 7rem)" }}>
@@ -99,8 +99,8 @@ export default function HomePage() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link href="/login" className="btn-primary py-4 px-8 text-base justify-center">
-              ▶ GET STARTED FREE
+            <Link href="/dashboard" className="btn-primary py-4 px-8 text-base justify-center">
+              ▶ ENTER ARENA FREE
             </Link>
             <a href="#how-it-works" className="btn-outline py-4 px-8 text-base justify-center">
               SEE HOW IT WORKS ↓
@@ -153,7 +153,7 @@ export default function HomePage() {
               { icon: "⚡", title: "Brutal Feedback", desc: "No sugar-coating. Score, what went wrong, what you should've said — all of it." },
               { icon: "📈", title: "Adaptive Difficulty", desc: "Level 1 to 3. AI adjusts difficulty based on your answers in real-time." },
               { icon: "📊", title: "Performance Reports", desc: "Full Q&A breakdown. Strengths, weaknesses, recommendations after every session." },
-              { icon: "🔐", title: "Your Data, Secure", desc: "Resume and interviews stored only for you, under your account." },
+              { icon: "🔓", title: "Open Platform", desc: "Use default server keys or bring your own API subscription key." },
             ].map(({ icon, title, desc }) => (
               <div key={title} className="border border-[#1a1a1a] p-5 hover:border-[#e63329]/40 transition-colors group">
                 <div className="text-2xl mb-3">{icon}</div>
@@ -201,11 +201,12 @@ export default function HomePage() {
           <p className="font-body text-[#666] text-sm mb-8 leading-relaxed">
             Upload your resume. Pick your role. Answer to the AI.<br/>No shortcuts. No excuses. Just results.
           </p>
-          <Link href="/login" className="btn-primary py-5 px-12 text-lg inline-flex" style={{ background: "#e63329", color: "#fff" }}>
+          <Link href="/dashboard" className="btn-primary py-5 px-12 text-lg inline-flex" style={{ background: "#e63329", color: "#fff" }}>
             ▶ START YOUR FIRST INTERVIEW
           </Link>
         </div>
       </section>
+
 
       {/* ── FOOTER ── */}
       <footer className="w-full border-t border-[#111] py-12 px-4 text-center">

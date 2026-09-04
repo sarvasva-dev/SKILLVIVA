@@ -1,24 +1,34 @@
-const sarvamApiKey = process.env.SARVAM_API_KEY_LLM;
+import JSON5 from "json5";
+import dns from "dns";
+
+if (dns && typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
 
 /**
- * [HACKATHON NOTE FOR JUDGES]: Fault-Tolerant AI Architecture
- * During hackathons with hundreds of teams on shared Wi-Fi, external AI APIs often timeout.
- * We built a fallback mechanism: if the primary model fails, the system catches the error 
- * and routes to Sarvam-105B or Browser native text-to-speech so the user experience never breaks.
- * Helper to call LLM using Sarvam-30B, with fallback to Sarvam-105B.
+ * Helper to call LLM using Sarvam-105B with fallbacks.
+ * Accepts an optional customKey passed from client request headers.
  */
-export async function generateContentWithFallback(promptText: string, maxTokens: number = 4000, temperature: number = 0.1, timeoutMs: number = 40000): Promise<string> {
+export async function generateContentWithFallback(
+  promptText: string,
+  maxTokens: number = 4096,
+  temperature: number = 0.1,
+  timeoutMs: number = 45000,
+  customKey?: string
+): Promise<string> {
   const allKeys = [
+    customKey,
     process.env.SARVAM_API_KEY_LLM,
     process.env.SARVAM_API_KEY_TTS,
     process.env.SARVAM_API_KEY_STT
-  ].filter(Boolean) as string[];
+  ].filter((k): k is string => Boolean(k && k.trim() !== "" && k !== "your_sarvam_api_key_here"));
 
-  if (allKeys.length === 0 || allKeys[0] === "your_sarvam_api_key_here") {
-    throw new Error("Sarvam API keys are not configured.");
+  if (allKeys.length === 0) {
+    throw new Error("No Sarvam/AI API keys configured. Please configure an API key in settings or .env.");
   }
 
   const isJsonRequest = promptText.includes("JSON");
+  const effectiveMaxTokens = isJsonRequest ? Math.max(maxTokens, 4096) : maxTokens;
 
   // Helper function to try all keys for a given model
   const tryModelWithKeys = async (modelName: string) => {
@@ -43,17 +53,17 @@ export async function generateContentWithFallback(promptText: string, maxTokens:
               {
                 role: "system",
                 content: isJsonRequest
-                  ? "You are an expert AI API. You MUST output ONLY raw valid JSON."
+                  ? "You are an expert AI API. Output strictly raw valid JSON. Do not output reasoning or markdown."
                   : "You are an expert, helpful assistant."
               },
               {
                 role: "user",
                 content: isJsonRequest
-                  ? promptText + "\n\nCRITICAL: IMMEDIATELY start your response with '{' (for objects) or '[' (for arrays) and output the raw JSON. Do not output anything outside the JSON structure. Do not output markdown code blocks. Make sure all strings inside JSON use double quotes, and avoid unescaped double quotes inside values."
-                  : promptText + "\n\nCRITICAL: DO NOT output any reasoning, thinking, or markdown formatting. IMMEDIATELY output ONLY the requested text."
+                  ? promptText + "\n\nCRITICAL: Output ONLY raw valid JSON. Start directly with '{' or '['. No thinking, no markdown blocks."
+                  : promptText + "\n\nCRITICAL: DO NOT output any reasoning, thinking, or markdown formatting."
               }
             ],
-            max_tokens: maxTokens,
+            max_tokens: effectiveMaxTokens,
             temperature: temperature
           })
         });
@@ -64,11 +74,15 @@ export async function generateContentWithFallback(promptText: string, maxTokens:
           const msg = data.choices?.[0]?.message;
           
           let content = msg?.content;
-          if ((!content || content.trim() === "") && msg?.reasoning_content) {
-            content = msg.reasoning_content;
+          
+          // If content is null/empty but reasoning_content exists, try to extract JSON from reasoning_content
+          if ((!content || typeof content !== "string" || content.trim() === "") && msg?.reasoning_content) {
+            const reasoning = msg.reasoning_content;
+            console.log("Sarvam model returned reasoning_content. Attempting to extract output...");
+            content = extractJsonFromText(reasoning) || reasoning;
           }
           
-          if (content && content.trim().length > 0) {
+          if (content && typeof content === "string" && content.trim().length > 0) {
             return content.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
           }
         } else {
@@ -81,68 +95,105 @@ export async function generateContentWithFallback(promptText: string, maxTokens:
     return null; // All keys failed for this model
   };
 
-  // 1. Try 105B model with all available keys
+  // Try sarvam-105b-conversations first (fast direct output), then sarvam-105b
+  const resConv = await tryModelWithKeys("sarvam-105b-conversations");
+  if (resConv) return resConv;
+
   const res105B = await tryModelWithKeys("sarvam-105b");
   if (res105B) return res105B;
-
-  // 2. Fallback to 30B model with all available keys
-  console.log("Falling back to Sarvam-30B...");
-  const res30B = await tryModelWithKeys("sarvam-30b");
-  if (res30B) return res30B;
 
   throw new Error("All Sarvam AI models failed or timed out across all available keys.");
 }
 
 /**
- * Utility to clean markdown JSON formatting code blocks from LLM output.
+ * Helper to extract embedded JSON string from reasoning or noisy text.
+ */
+function extractJsonFromText(text: string): string | null {
+  if (!text) return null;
+  const matchBlock = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (matchBlock && matchBlock[1]) return matchBlock[1].trim();
+
+  const startObj = text.indexOf('{');
+  const startArr = text.indexOf('[');
+  let startIdx = -1;
+  if (startObj !== -1 && startArr !== -1) startIdx = Math.min(startObj, startArr);
+  else if (startObj !== -1) startIdx = startObj;
+  else if (startArr !== -1) startIdx = startArr;
+
+  const endObj = text.lastIndexOf('}');
+  const endArr = text.lastIndexOf(']');
+  let endIdx = -1;
+  if (endObj !== -1 && endArr !== -1) endIdx = Math.max(endObj, endArr);
+  else if (endObj !== -1) endIdx = endObj;
+  else if (endArr !== -1) endIdx = endArr;
+
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    return text.substring(startIdx, endIdx + 1);
+  }
+  return null;
+}
+
+/**
+ * Utility to clean markdown JSON formatting code blocks and thinking tags from LLM output.
  */
 export function cleanJsonString(rawText: string): string {
-  let cleaned = rawText.trim();
-  
-  // Try to extract content inside ```json ... ``` blocks
-  const jsonMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (jsonMatch && jsonMatch[1]) {
-    cleaned = jsonMatch[1].trim();
-  } else {
-    // If no markdown block, sometimes they just output text before the JSON
-    const startObj = cleaned.indexOf('{');
-    const startArr = cleaned.indexOf('[');
-    let startIdx = -1;
-    
-    if (startObj !== -1 && startArr !== -1) {
-      startIdx = Math.min(startObj, startArr);
-    } else if (startObj !== -1) {
-      startIdx = startObj;
-    } else if (startArr !== -1) {
-      startIdx = startArr;
-    }
+  if (!rawText) return "";
+  let cleaned = rawText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  const extracted = extractJsonFromText(cleaned);
+  return extracted || cleaned;
+}
 
-    const endObj = cleaned.lastIndexOf('}');
-    const endArr = cleaned.lastIndexOf(']');
-    let endIdx = -1;
+/**
+ * Ultra-robust JSON parser that attempts standard JSON.parse, JSON5.parse,
+ * trailing comma stripping, and structure extraction before falling back.
+ */
+export function safeParseJson<T>(rawText: string, fallback: T): T {
+  if (!rawText || typeof rawText !== "string") return fallback;
+  const cleaned = cleanJsonString(rawText);
 
-    if (endObj !== -1 && endArr !== -1) {
-      endIdx = Math.max(endObj, endArr);
-    } else if (endObj !== -1) {
-      endIdx = endObj;
-    } else if (endArr !== -1) {
-      endIdx = endArr;
-    }
+  // 1. Standard JSON parse
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {}
 
-    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-      cleaned = cleaned.substring(startIdx, endIdx + 1);
+  // 2. JSON5 parse
+  try {
+    return JSON5.parse(cleaned);
+  } catch (e) {}
+
+  // 3. Sanitized JSON parse (remove trailing commas, unescaped control chars)
+  try {
+    const sanitized = cleaned
+      .replace(/,\s*([\}\]])/g, "$1")
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+    return JSON.parse(sanitized);
+  } catch (e) {}
+
+  // 4. Try extract object / array matching regex
+  try {
+    const objMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (objMatch) {
+      const sanitizedObj = objMatch[0].replace(/,\s*([\}])/g, "$1");
+      return JSON5.parse(sanitizedObj);
     }
-  }
-  
-  return cleaned;
+    const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+    if (arrMatch) {
+      const sanitizedArr = arrMatch[0].replace(/,\s*([\]])/g, "$1");
+      return JSON5.parse(sanitizedArr);
+    }
+  } catch (e) {}
+
+  console.warn("safeParseJson failed to parse LLM response, returning fallback default.");
+  return fallback;
 }
 
 /**
  * Transcribes audio content using Sarvam STT.
  */
-export async function transcribeAudioWithSarvam(audioBase64: string, mimeType: string): Promise<string> {
-  if (!sarvamApiKey || sarvamApiKey === "your_sarvam_api_key_here") {
-    throw new Error("Sarvam API key is not configured");
+export async function transcribeAudioWithSarvam(audioBase64: string, mimeType: string, customKey?: string): Promise<string> {
+  const apiKey = customKey || process.env.SARVAM_API_KEY_STT || process.env.SARVAM_API_KEY_LLM;
+  if (!apiKey || apiKey === "your_sarvam_api_key_here") {
+    throw new Error("Sarvam STT API key is not configured");
   }
   
   try {
@@ -150,13 +201,12 @@ export async function transcribeAudioWithSarvam(audioBase64: string, mimeType: s
     const buffer = Buffer.from(audioBase64, "base64");
     const blob = new Blob([buffer], { type: mimeType });
     formData.append("file", blob, "audio.webm");
-    // Saaras model is typically used for Sarvam speech to text
-    formData.append("model", "saaras:v1");
+    formData.append("model", "saaras:v3");
 
     const response = await fetch("https://api.sarvam.ai/speech-to-text", {
       method: "POST",
       headers: {
-        "api-subscription-key": sarvamApiKey
+        "api-subscription-key": apiKey
       },
       body: formData
     });
@@ -174,3 +224,4 @@ export async function transcribeAudioWithSarvam(audioBase64: string, mimeType: s
     throw error;
   }
 }
+

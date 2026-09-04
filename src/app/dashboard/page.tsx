@@ -48,15 +48,21 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const userStr = localStorage.getItem("skillviva_user");
+        let userStr = localStorage.getItem("skillviva_user");
         if (!userStr) {
-          router.push("/login");
-          return;
+          const guestUser: UserProfile = {
+            _id: "guest-" + Date.now().toString(36),
+            name: "Candidate",
+            email: "candidate@skillviva.open",
+            targetRole: "Frontend Developer"
+          };
+          localStorage.setItem("skillviva_user", JSON.stringify(guestUser));
+          userStr = JSON.stringify(guestUser);
         }
 
         const userData = JSON.parse(userStr);
         setUser(userData);
-        setSelectedRole(userData.targetRole || "");
+        setSelectedRole(userData.targetRole || "Frontend Developer");
         
         const interviewsStr = localStorage.getItem("skillviva_interviews");
         if (interviewsStr) {
@@ -77,25 +83,17 @@ export default function DashboardPage() {
           setSelectedRole("Other");
           setCustomRole(userData.targetRole);
         }
-      } catch {
-        router.push("/login");
+      } catch (e) {
+        console.error("Dashboard error:", e);
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, [router]);
+  }, []);
 
   const handleStartInterview = async () => {
-    if (!user?.resumeAnalysis) {
-      router.push("/resume");
-      return;
-    }
-    const finalRole = selectedRole === "Other" ? customRole : selectedRole;
-    if (!finalRole) {
-      alert("Please select your target role before starting.");
-      return;
-    }
+    const finalRole = selectedRole === "Other" ? customRole : selectedRole || "Frontend Developer";
 
     setIsGenerating(true);
     try {
@@ -105,26 +103,25 @@ export default function DashboardPage() {
         localStorage.setItem("skillviva_user", JSON.stringify(updatedUser));
       }
 
+      const customKey = localStorage.getItem("skillviva_custom_api_key");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (customKey) headers["x-sarvam-key"] = customKey;
+
       // Pre-generate custom questions before starting
       const genRes = await fetch("/api/questions/generate-batch", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ role: finalRole, resumeContext: user?.resumeAnalysis || {} })
       });
 
-      if (!genRes.ok) {
-        alert("Failed to prepare your customized arena. Please try again.");
-        return;
-      }
-      
-      const data = await genRes.json();
-      if (data.questions && data.questions.length > 0) {
-        localStorage.setItem("skillviva_questions", JSON.stringify(data.questions));
+      if (genRes.ok) {
+        const data = await genRes.json();
+        if (data.questions && data.questions.length > 0) {
+          localStorage.setItem("skillviva_questions", JSON.stringify(data.questions));
+        }
       }
     } catch (err) {
-      console.error("Failed during interview initialization", err);
-      alert("Network error occurred. Please check your connection.");
-      return;
+      console.warn("Question batch generation notice, proceeding with interview flow:", err);
     } finally {
       setIsGenerating(false);
     }
@@ -132,6 +129,7 @@ export default function DashboardPage() {
     localStorage.setItem("skillviva_interview_config", JSON.stringify({ role: finalRole, diff: String(selectedDifficulty) }));
     router.push("/interview");
   };
+
 
   const handleClearHistory = () => {
     if (!confirm("Are you sure you want to clear your entire interview history?")) return;

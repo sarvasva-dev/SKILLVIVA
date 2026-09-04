@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateContentWithFallback, cleanJsonString } from "@/lib/ai";
+import { generateContentWithFallback, safeParseJson } from "@/lib/ai";
 
 export async function POST(req: NextRequest) {
   try {
+    const customKey = req.headers.get("x-sarvam-key") || req.headers.get("x-api-key") || undefined;
     const body = await req.json();
     const { role, resumeContext, difficulty } = body;
 
@@ -50,52 +51,16 @@ ${resumeAnalysisText}
 
     let rawResponse = "";
     try {
-      // 8.5 seconds timeout to guarantee completion before Netlify 10-second limit
-      rawResponse = await generateContentWithFallback(persona, 4000, 0.7, 8500);
+      rawResponse = await generateContentWithFallback(persona, 4000, 0.7, 15000, customKey);
     } catch (llmErr) {
       console.warn("LLM API call timed out or failed, proceeding with fallback batch questions:", llmErr);
       rawResponse = "";
     }
-    const responseText = cleanJsonString(rawResponse);
 
-    let questionsData = [];
-    try {
-      questionsData = JSON.parse(responseText);
-      if (!Array.isArray(questionsData)) {
-        throw new Error("Parsed JSON is not an array");
-      }
-    } catch (parseErr) {
-      console.warn("Initial JSON.parse failed, attempting to salvage truncated JSON...");
-      try {
-        const lastBraceIndex = responseText.lastIndexOf('}');
-        if (lastBraceIndex !== -1) {
-          let salvagedText = responseText.substring(0, lastBraceIndex + 1);
-          if (!salvagedText.startsWith('[')) {
-             const startIdx = salvagedText.indexOf('[');
-             if (startIdx !== -1) {
-               salvagedText = salvagedText.substring(startIdx);
-             } else {
-               salvagedText = '[' + salvagedText;
-             }
-          }
-          if (!salvagedText.endsWith(']')) {
-             salvagedText = salvagedText + ']';
-          }
-          questionsData = JSON.parse(salvagedText);
-          if (!Array.isArray(questionsData)) {
-            throw new Error("Salvaged JSON is not an array");
-          }
-          console.log(`Successfully salvaged ${questionsData.length} questions from truncated JSON.`);
-        } else {
-          throw new Error("No valid objects found to salvage.");
-        }
-      } catch (salvageErr) {
-        console.error("Failed to salvage batch JSON", salvageErr);
-      }
-    }
+    let questionsData = safeParseJson<any[]>(rawResponse, []);
 
     if (!Array.isArray(questionsData) || questionsData.length === 0) {
-      console.warn("Using ultimate fallback generic questions because LLM generation failed completely.");
+      console.warn("Using ultimate fallback generic questions because LLM generation returned empty/invalid format.");
       questionsData = [
         { text: `Tell me about your experience as a ${role}.`, difficulty: "Level 1" },
         { text: "What is your greatest strength in this field?", difficulty: "Level 1" },
@@ -112,7 +77,7 @@ ${resumeAnalysisText}
 
     const formattedQuestions = questionsData.map((q: any) => ({
       difficulty: q.difficulty || "Level 1",
-      text: q.text,
+      text: q.text || "Tell me about your background.",
       used: false,
       id: crypto.randomUUID()
     }));

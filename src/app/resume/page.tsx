@@ -29,20 +29,29 @@ export default function ResumePage() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const userStr = localStorage.getItem("skillviva_user");
-        if (!userStr) { router.push("/login"); return; }
+        let userStr = localStorage.getItem("skillviva_user");
+        if (!userStr) {
+          const guestUser = {
+            _id: "guest-" + Date.now().toString(36),
+            name: "Candidate",
+            email: "candidate@skillviva.open",
+            targetRole: "Frontend Developer"
+          };
+          localStorage.setItem("skillviva_user", JSON.stringify(guestUser));
+          userStr = JSON.stringify(guestUser);
+        }
         const data = JSON.parse(userStr);
         setUserProfile(data);
         if (data.resumeAnalysis) {
           setDetailedFeedback(data.resumeAnalysis);
           setStatus("DONE");
         }
-      } catch {
-        router.push("/login");
+      } catch (e) {
+        console.error("Error loading profile", e);
       }
     };
     fetchUser();
-  }, [router]);
+  }, []);
 
   const handleFileChange = async (selectedFile: File) => {
     if (selectedFile && selectedFile.type === "application/pdf") {
@@ -56,16 +65,22 @@ export default function ResumePage() {
   const analyzeResume = async (pdfFile: File) => {
     setStatus("ANALYZING");
     try {
-      const targetRole = userProfile?.targetRole || "Unknown";
+      const targetRole = userProfile?.targetRole || "Frontend Developer";
       
       const formData = new FormData();
       formData.append("file", pdfFile);
       formData.append("targetRole", targetRole);
 
+      const customKey = localStorage.getItem("skillviva_custom_api_key");
+      const headers: Record<string, string> = {};
+      if (customKey) headers["x-sarvam-key"] = customKey;
+
       const response = await fetch("/api/resume", {
         method: "POST",
+        headers,
         body: formData,
       });
+
       
       const data = await response.json();
       

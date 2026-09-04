@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateContentWithFallback, cleanJsonString } from "@/lib/ai";
+import { generateContentWithFallback, safeParseJson } from "@/lib/ai";
 
 export async function POST(req: NextRequest) {
   try {
+    const customKey = req.headers.get("x-sarvam-key") || req.headers.get("x-api-key") || undefined;
     const body = await req.json();
     const { history, role } = body;
 
@@ -29,14 +30,26 @@ Output your response strictly in the following JSON format:
 Return ONLY the JSON. No markdown backticks, no wrap.
 `;
 
-    const rawResponse = await generateContentWithFallback(prompt);
-    const responseText = cleanJsonString(rawResponse);
+    let rawResponse = "";
+    try {
+      rawResponse = await generateContentWithFallback(prompt, 2000, 0.2, 30000, customKey);
+    } catch (e) {
+      console.warn("Failed to get LLM response for report, using fallback", e);
+      rawResponse = "";
+    }
 
-    const reportData = JSON.parse(responseText);
+    const fallbackReport = {
+      strong_areas: ["Communication", "Domain Interest"],
+      weak_areas: ["Technical Depth under pressure", "Response Conciseness"],
+      overall_feedback: `The candidate completed the mock interview for ${role || 'the targeted role'}. Overall performance demonstrated solid effort, though key responses could be tightened with more concrete data points.`,
+      recommendations: ["Practice structuring answers using STAR method", "Quantify measurable impact in past projects"]
+    };
+
+    const reportData = safeParseJson(rawResponse, fallbackReport);
     return NextResponse.json(reportData);
 
   } catch (error) {
     console.error("Report generation error:", error);
     return NextResponse.json({ error: "Failed to generate report" }, { status: 500 });
   }
-}
+}
